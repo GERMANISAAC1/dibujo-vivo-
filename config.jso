@@ -1,0 +1,13 @@
+{
+  "enabled": false,
+  "days": 365,
+  "price": "Licencia anual",
+  "buy": "",
+  "locks": {
+    "pdf": true,
+    "photo": false,
+    "upload": false,
+    "export": false
+  },
+  "licenses": []
+}
