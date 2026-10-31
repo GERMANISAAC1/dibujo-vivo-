@@ -1952,6 +1952,327 @@ input[type=text]{flex:1;min-width:0;height:40px;border:1px solid var(--line);bor
     mine=[];saveFigs();buildGal();say('Figuras subidas borradas.',1800);
   });
 
+  /* ---------- Licencia anual por código + panel de admin con toques (bloque añadido) ---------- */
+var SHA_K=null,SHA_H=null;
+function sha256(msg){
+  var s=unescape(encodeURIComponent(msg)),bytes=[],i;
+  for(i=0;i<s.length;i++)bytes.push(s.charCodeAt(i));
+  if(!SHA_K){
+    SHA_K=[];SHA_H=[];
+    var p=2,n=0;
+    while(n<64){
+      var ok=true;for(var d=2;d*d<=p;d++){if(p%d===0){ok=false;break;}}
+      if(ok){if(n<8)SHA_H.push((Math.pow(p,.5)%1)*4294967296>>>0);SHA_K.push((Math.pow(p,1/3)%1)*4294967296>>>0);n++;}
+      p++;
+    }
+  }
+  var l=bytes.length*8;bytes.push(128);while(bytes.length%64!==56)bytes.push(0);
+  var hi=Math.floor(l/4294967296),lo=l>>>0;
+  bytes.push((hi>>>24)&255,(hi>>>16)&255,(hi>>>8)&255,hi&255,(lo>>>24)&255,(lo>>>16)&255,(lo>>>8)&255,lo&255);
+  var h=SHA_H.slice(),w=new Array(64);
+  function rr(x,k){return (x>>>k)|(x<<(32-k));}
+  for(var o=0;o<bytes.length;o+=64){
+    for(i=0;i<16;i++)w[i]=((bytes[o+4*i]<<24)|(bytes[o+4*i+1]<<16)|(bytes[o+4*i+2]<<8)|bytes[o+4*i+3])|0;
+    for(i=16;i<64;i++){
+      var s0=rr(w[i-15],7)^rr(w[i-15],18)^(w[i-15]>>>3),s1=rr(w[i-2],17)^rr(w[i-2],19)^(w[i-2]>>>10);
+      w[i]=(w[i-16]+s0+w[i-7]+s1)|0;
+    }
+    var a=h[0]|0,b=h[1]|0,c=h[2]|0,d2=h[3]|0,e=h[4]|0,f=h[5]|0,g=h[6]|0,hh=h[7]|0;
+    for(i=0;i<64;i++){
+      var S1=rr(e,6)^rr(e,11)^rr(e,25),ch=(e&f)^(~e&g),t1=(hh+S1+ch+SHA_K[i]+w[i])|0;
+      var S0=rr(a,2)^rr(a,13)^rr(a,22),mj=(a&b)^(a&c)^(b&c),t2=(S0+mj)|0;
+      hh=g;g=f;f=e;e=(d2+t1)|0;d2=c;c=b;b=a;a=(t1+t2)|0;
+    }
+    h[0]=(h[0]+a)|0;h[1]=(h[1]+b)|0;h[2]=(h[2]+c)|0;h[3]=(h[3]+d2)|0;h[4]=(h[4]+e)|0;h[5]=(h[5]+f)|0;h[6]=(h[6]+g)|0;h[7]=(h[7]+hh)|0;
+  }
+  var out='';for(i=0;i<8;i++)out+=('00000000'+(h[i]>>>0).toString(16)).slice(-8);
+  return out;
+}
+
+  var LK='dv-lic',UK='dv-used',CK='dv-cfg-local',CC='dv-cfg-cache',AK='dv-admin-h',DAY=86400000;
+  var LDEF={enabled:false,days:365,price:'',buy:'',locks:{pdf:true,photo:false,upload:false,export:false},licenses:[]};
+  /*PURE-START*/
+  function mergeLic(){
+    var out=JSON.parse(JSON.stringify(LDEF));
+    for(var a=0;a<arguments.length;a++){
+      var o=arguments[a];if(!o||typeof o!=='object')continue;
+      if(typeof o.enabled==='boolean')out.enabled=o.enabled;
+      if(typeof o.days==='number'&&isFinite(o.days))out.days=Math.max(1,Math.min(3650,Math.round(o.days)));
+      if(typeof o.price==='string')out.price=o.price.slice(0,80);
+      if(typeof o.buy==='string')out.buy=o.buy.slice(0,300);
+      if(o.locks&&typeof o.locks==='object')for(var k in out.locks)if(typeof o.locks[k]==='boolean')out.locks[k]=o.locks[k];
+      if(Array.isArray(o.licenses))out.licenses=o.licenses.filter(function(x){return typeof x==='string'&&/^[0-9a-f]{64}$/.test(x);});
+    }
+    return out;
+  }
+  function normCode(t){return String(t||'').toUpperCase().replace(/[^A-Z0-9]/g,'');}
+  /*PURE-END*/
+  function jget(k,d){try{var t=localStorage.getItem(k);return t?JSON.parse(t):d;}catch(e){return d;}}
+  function jset(k,v){try{localStorage.setItem(k,JSON.stringify(v));}catch(e){}}
+  var LCFG=mergeLic(jget(CC,null),jget(CK,null));
+  function adminOn(){try{return sessionStorage.getItem('dv-admin')==='1'&&localStorage.getItem('dv-adminfree')!=='1';}catch(e){return false;}}
+  function licInfo(){
+    var l=jget(LK,null);
+    if(l&&typeof l.h==='string'&&typeof l.exp==='number'&&LCFG.licenses.indexOf(l.h)>=0&&Date.now()<l.exp)return {ok:true,exp:l.exp};
+    return {ok:false,exp:(l&&typeof l.exp==='number')?l.exp:0};
+  }
+  function hasAccess(){return !LCFG.enabled||adminOn()||licInfo().ok;}
+  function isLocked(k){return !!(LCFG.enabled&&LCFG.locks[k]&&!hasAccess());}
+  function fmtDate(ms){try{return new Date(ms).toLocaleDateString('es',{day:'numeric',month:'long',year:'numeric'});}catch(e){return new Date(ms).toDateString();}}
+  function durText(d){return d===365?'1 año':(d%30===0&&d>=60?(d/30)+' meses':d+' días');}
+
+  /* estilos y elementos nuevos (se crean aquí, sin tocar el HTML existente) */
+  var lst=document.createElement('style');
+  lst.textContent=
+    '.top h1{touch-action:manipulation;-webkit-user-select:none;user-select:none}'+
+    '#b-lic[aria-pressed="true"] svg{fill:#F5B301;stroke:#E09A00}'+
+    '.lic-ov{position:fixed;inset:0;z-index:60;background:rgba(10,14,24,.55);display:flex;align-items:flex-end;justify-content:center}'+
+    '.lic-dlg{width:min(520px,100%);max-height:90vh;overflow:auto;background:var(--bar);color:var(--ink);border-radius:20px 20px 0 0;padding:20px 18px calc(18px + env(safe-area-inset-bottom,0px));box-shadow:0 -10px 40px rgba(0,0,0,.35);-webkit-user-select:text;user-select:text}'+
+    '@media (min-width:600px){.lic-ov{align-items:center}.lic-dlg{border-radius:20px}}'+
+    '.lic-dlg h2{margin:0 0 6px;font:800 22px/1.1 var(--f-display);letter-spacing:-.01em}'+
+    '.lic-dlg p{margin:6px 0;font:500 14px/1.4 var(--f-body);color:var(--ink2)}'+
+    '.lic-dlg input[type=text],.lic-dlg input[type=number],.lic-dlg input[type=password],.lic-dlg input[type=url]{flex:none;width:100%;height:auto;padding:10px 12px;border:1px solid var(--line);border-radius:10px;background:var(--bar2);color:var(--ink);font:500 15px var(--f-body);-webkit-user-select:text;user-select:text}'+
+    '.lic-fld{display:grid;gap:5px;margin:10px 0;font:600 13px var(--f-display);color:var(--ink2)}'+
+    '.lic-chk{display:flex;align-items:center;gap:8px;margin:8px 0;font:500 14px var(--f-body);color:var(--ink)}'+
+    '.lic-chk input{width:18px;height:18px}'+
+    '.lic-sec{border-top:1px solid var(--line);margin-top:14px;padding-top:12px}'+
+    '.lic-sec h3{margin:0 0 4px;font:800 15px var(--f-display)}'+
+    '.lic-btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:12px}'+
+    '.lic-btn{padding:11px 16px;border:1px solid var(--line);border-radius:12px;background:var(--bar2);color:var(--ink);font:700 14px var(--f-display)}'+
+    '.lic-btn.pri{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}'+
+    '.lic-btn.bad{color:var(--danger)}'+
+    '.lic-code{display:flex;gap:6px;align-items:center;justify-content:space-between;font:500 13px var(--f-mono);padding:6px 0;border-bottom:1px dashed var(--line)}'+
+    '.lic-code .lic-btn{padding:5px 10px;font-size:12px}'+
+    '.lic-msg{min-height:18px;font:600 13px var(--f-body);margin-top:6px}'+
+    '.lic-msg.err{color:var(--danger)}.lic-msg.ok{color:#1c8a4f}';
+  document.head.appendChild(lst);
+  ICONS.page='<path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6"/>';
+  ICONS.star='<path d="m12 2 3.1 6.3 6.9 1-5 4.9 1.2 6.8L12 17.8 5.8 21l1.2-6.8-5-4.9 6.9-1z"/>';
+  function mkTool(id,label,ic){
+    var b=document.createElement('button');b.type='button';b.className='tool';b.id=id;
+    b.setAttribute('aria-label',label);b.setAttribute('title',label);
+    var sp=document.createElement('span');sp.className='i';icon(sp,ic);b.appendChild(sp);
+    return b;
+  }
+  var bBlank=mkTool('b-blank','Página en blanco','page'),bLic=mkTool('b-lic','Licencia','star');
+  bLic.setAttribute('aria-pressed','false');bLic.hidden=true;
+  $('fab').appendChild(bBlank);$('fab').appendChild(bLic);
+
+  var lov=document.createElement('div');lov.className='lic-ov';lov.hidden=true;
+  var ldlg=document.createElement('div');ldlg.className='lic-dlg';ldlg.setAttribute('role','dialog');ldlg.setAttribute('aria-modal','true');
+  lov.appendChild(ldlg);document.body.appendChild(lov);
+  function h(tag,at,kids){
+    var e=document.createElement(tag);at=at||{};
+    for(var k in at){
+      if(k==='text')e.textContent=at[k];
+      else if(k==='cls')e.className=at[k];
+      else if(k==='value'||k==='checked')e[k]=at[k];
+      else if(k.slice(0,2)==='on')e.addEventListener(k.slice(2),at[k]);
+      else e.setAttribute(k,at[k]);
+    }
+    (kids||[]).forEach(function(c){if(c)e.appendChild(typeof c==='string'?document.createTextNode(c):c);});
+    return e;
+  }
+  function openDlg(nodes){ldlg.innerHTML='';nodes.forEach(function(n){ldlg.appendChild(n);});lov.hidden=false;ldlg.scrollTop=0;}
+  function closeDlg(){lov.hidden=true;ldlg.innerHTML='';}
+  lov.addEventListener('pointerdown',function(e){if(e.target===lov)closeDlg();});
+  window.addEventListener('keydown',function(e){if(e.key==='Escape'&&!lov.hidden)closeDlg();});
+  function openUrl(u){if(!u)return;if(!/^https?:\/\//i.test(u))u='https://'+u;window.open(u,'_blank','noopener');}
+  function refreshLic(){
+    bLic.hidden=!LCFG.enabled;
+    var ok=hasAccess();
+    bLic.setAttribute('aria-pressed',ok);
+    var lb=ok?'Licencia activa':'Activar licencia';bLic.setAttribute('aria-label',lb);bLic.setAttribute('title',lb);
+  }
+
+  /* ---- Página en blanco ---- */
+  bBlank.addEventListener('click',function(){
+    if(mode!=='draw')return;
+    var n=frames.length;
+    blankFrame();
+    if(frames.length>n){frames[cur].tpl=false;buildStrip();view();say('Página en blanco añadida.',1800);}
+  });
+
+  /* ---- Bloqueo de funciones sin licencia (se intercepta el toque antes de que actúe el botón) ---- */
+  var LOCKMAP={'g-pdf':'pdf','t-photo':'photo','g-up':'upload','b-save':'export','b-share':'export'};
+  document.addEventListener('click',function(e){
+    var t=e.target&&e.target.closest?e.target.closest('button'):null;
+    if(!t||!t.id)return;
+    var key=LOCKMAP[t.id];
+    if(key&&isLocked(key)){e.stopPropagation();e.preventDefault();openLic(key);}
+  },true);
+  bLic.addEventListener('click',function(){openLic(null);});
+
+  /* ---- Pantalla de activación ---- */
+  function openLic(why){
+    var info=licInfo(),nodes=[],msg=h('div',{cls:'lic-msg'});
+    nodes.push(h('h2',{text:(info.ok||adminOn())?'Licencia activa ★':'Activa tu licencia'}));
+    if(info.ok){
+      nodes.push(h('p',{text:'Tu licencia está activa hasta el '+fmtDate(info.exp)+'.'}));
+      nodes.push(h('div',{cls:'lic-btns'},[
+        h('button',{cls:'lic-btn',type:'button',text:'Cerrar',onclick:closeDlg}),
+        h('button',{cls:'lic-btn bad',type:'button',text:'Quitar de este dispositivo',onclick:function(){try{localStorage.removeItem(LK);}catch(e){}refreshLic();closeDlg();}})
+      ]));
+      openDlg(nodes);return;
+    }
+    if(adminOn()){
+      nodes.push(h('p',{text:'Eres administrador: tienes todo desbloqueado en este navegador.'}));
+      nodes.push(h('div',{cls:'lic-btns'},[h('button',{cls:'lic-btn',type:'button',text:'Cerrar',onclick:closeDlg})]));
+      openDlg(nodes);return;
+    }
+    var names={pdf:'Subir PDF',photo:'la herramienta Foto',upload:'Subir figura',export:'Descargar y compartir'};
+    nodes.push(h('p',{text:(why&&names[why])?('Para usar '+names[why]+' necesitas una licencia de '+durText(LCFG.days)+'.'):('Escribe el código que recibiste. La licencia dura '+durText(LCFG.days)+' desde que la activas.')}));
+    if(info.exp&&info.exp<=Date.now())nodes.push(h('p',{text:'Tu licencia anterior venció el '+fmtDate(info.exp)+'.'}));
+    if(LCFG.price)nodes.push(h('p',{text:LCFG.price,style:'font:800 20px var(--f-display);color:var(--ink)'}));
+    var inp=h('input',{type:'text',placeholder:'DV-XXXX-XXXX',autocomplete:'off',autocapitalize:'characters',spellcheck:'false','aria-label':'Código de licencia'});
+    function activate(){
+      var c=normCode(inp.value);
+      if(c.length<6){msg.className='lic-msg err';msg.textContent='Escribe tu código completo.';return;}
+      var hs=sha256(c);
+      if(LCFG.licenses.indexOf(hs)<0){msg.className='lic-msg err';msg.textContent='Ese código no es válido o ya no está activo.';return;}
+      var used=jget(UK,{}),exp=used[hs];
+      if(typeof exp==='number'&&Date.now()>=exp){msg.className='lic-msg err';msg.textContent='Ese código ya se usó y venció. Pide uno nuevo.';return;}
+      if(typeof exp!=='number'){exp=Date.now()+LCFG.days*DAY;used[hs]=exp;jset(UK,used);}
+      jset(LK,{h:hs,exp:exp});
+      refreshLic();closeDlg();say('¡Licencia activa hasta el '+fmtDate(exp)+'!',4200);
+    }
+    inp.addEventListener('keydown',function(e){if(e.key==='Enter')activate();});
+    nodes.push(h('label',{cls:'lic-fld'},['Código',inp]),msg);
+    var bt=[h('button',{cls:'lic-btn pri',type:'button',text:'Activar',onclick:activate})];
+    if(LCFG.buy)bt.push(h('button',{cls:'lic-btn',type:'button',text:'Comprar código',onclick:function(){openUrl(LCFG.buy);}}));
+    bt.push(h('button',{cls:'lic-btn',type:'button',text:'Ahora no',onclick:closeDlg}));
+    nodes.push(h('div',{cls:'lic-btns'},bt));
+    openDlg(nodes);
+  }
+
+  /* ---- Admin: se abre tocando 7 veces seguidas el título ---- */
+  function admHash(pw){return sha256('dvadmin|'+pw);}
+  function openAdmin(){
+    var stored='';try{stored=localStorage.getItem(AK)||'';}catch(e){}
+    try{if(sessionStorage.getItem('dv-admin')==='1'){adminPanel();return;}}catch(e){}
+    var msg=h('div',{cls:'lic-msg'}),pw=h('input',{type:'password',autocomplete:'current-password','aria-label':'Contraseña'}),pw2=h('input',{type:'password',autocomplete:'new-password','aria-label':'Repite la contraseña'});
+    function go(){
+      if(!stored){
+        if(pw.value.length<6){msg.className='lic-msg err';msg.textContent='Usa al menos 6 caracteres.';return;}
+        if(pw.value!==pw2.value){msg.className='lic-msg err';msg.textContent='Las contraseñas no coinciden.';return;}
+        try{localStorage.setItem(AK,admHash(pw.value));sessionStorage.setItem('dv-admin','1');}catch(e){}
+        refreshLic();adminPanel();
+      }else if(admHash(pw.value)===stored){
+        try{sessionStorage.setItem('dv-admin','1');}catch(e){}
+        refreshLic();adminPanel();
+      }else{msg.className='lic-msg err';msg.textContent='Contraseña incorrecta.';}
+    }
+    pw.addEventListener('keydown',function(e){if(e.key==='Enter'&&stored)go();});
+    var nodes=[h('h2',{text:'Admin'}),h('p',{text:stored?'Escribe tu contraseña de administrador.':'Primera vez: crea una contraseña para este navegador.'}),
+      h('label',{cls:'lic-fld'},[stored?'Contraseña':'Nueva contraseña',pw])];
+    if(!stored)nodes.push(h('label',{cls:'lic-fld'},['Repite la contraseña',pw2]));
+    nodes.push(msg,h('div',{cls:'lic-btns'},[h('button',{cls:'lic-btn pri',type:'button',text:stored?'Entrar':'Crear y entrar',onclick:go}),h('button',{cls:'lic-btn',type:'button',text:'Cerrar',onclick:closeDlg})]));
+    openDlg(nodes);
+    setTimeout(function(){try{pw.focus();}catch(e){}},50);
+  }
+  function adminPanel(){
+    var D=mergeLic(LCFG),codes=jget('dv-codes',{}),note=h('div',{cls:'lic-msg'});
+    function say2(t,ok){note.className='lic-msg '+(ok===false?'err':'ok');note.textContent=t;}
+    function txt(label,get,set,ph,type){
+      var i=h('input',{type:type||'text',value:get(),placeholder:ph||''});i.addEventListener('input',function(){set(i.value);});
+      return h('label',{cls:'lic-fld'},[label,i]);
+    }
+    function num(label,get,set,min,max){
+      var i=h('input',{type:'number',value:String(get()),min:String(min),max:String(max),inputmode:'numeric'});
+      i.addEventListener('input',function(){set(+i.value);});return h('label',{cls:'lic-fld'},[label,i]);
+    }
+    function chk(label,get,set){
+      var i=h('input',{type:'checkbox',checked:!!get()});i.addEventListener('change',function(){set(i.checked);});
+      return h('label',{cls:'lic-chk'},[i,label]);
+    }
+    var list=h('div');
+    function drawCodes(){
+      list.innerHTML='';
+      D.licenses.forEach(function(hs){
+        var c=codes[hs],row=h('div',{cls:'lic-code'},[h('span',{text:c||('(oculto) '+hs.slice(0,10)+'…')})]),bb=h('span');
+        if(c)bb.appendChild(h('button',{cls:'lic-btn',type:'button',text:'Copiar',onclick:function(){
+          if(navigator.clipboard)navigator.clipboard.writeText(c).then(function(){say2('Código copiado.');},function(){say2('No se pudo copiar.',false);});
+        }}));
+        bb.appendChild(document.createTextNode(' '));
+        bb.appendChild(h('button',{cls:'lic-btn bad',type:'button',text:'Quitar',onclick:function(){D.licenses=D.licenses.filter(function(x){return x!==hs;});drawCodes();}}));
+        row.appendChild(bb);list.appendChild(row);
+      });
+      if(!D.licenses.length)list.appendChild(h('p',{text:'Aún no hay códigos.'}));
+    }
+    function genCode(){
+      var AL='ABCDEFGHJKLMNPQRSTUVWXYZ23456789',a=new Uint8Array(8),out='';
+      (window.crypto||window.msCrypto).getRandomValues(a);
+      for(var i=0;i<8;i++)out+=AL[a[i]%AL.length];
+      var code='DV-'+out.slice(0,4)+'-'+out.slice(4),hs=sha256(normCode(code));
+      D.licenses.push(hs);codes[hs]=code;drawCodes();
+      say2('Código creado: '+code+'. Guarda, descarga el config.json y súbelo para activarlo.');
+    }
+    drawCodes();
+    function apply(){
+      D=mergeLic(D);LCFG=D;jset(CK,D);jset('dv-codes',codes);refreshLic();say2('Guardado y aplicado en este navegador.');
+    }
+    function exportCfg(){
+      var M=mergeLic(D),b=new Blob([JSON.stringify(M,null,2)],{type:'application/json'}),u=URL.createObjectURL(b),a=document.createElement('a');
+      a.href=u;a.download='config.json';document.body.appendChild(a);a.click();a.remove();setTimeout(function(){URL.revokeObjectURL(u);},4000);
+      say2('config.json descargado. Súbelo a tu repositorio junto a index.html.');
+    }
+    var imp=h('input',{type:'file',accept:'application/json,.json',style:'display:none'});
+    imp.addEventListener('change',function(){
+      var f=imp.files&&imp.files[0];if(!f)return;
+      f.text().then(function(t){D=mergeLic(JSON.parse(t));apply();adminPanel();}).catch(function(){say2('Ese archivo no es un config.json válido.',false);});
+    });
+    var free=h('input',{type:'checkbox'});try{free.checked=localStorage.getItem('dv-adminfree')==='1';}catch(e){}
+    free.addEventListener('change',function(){try{localStorage.setItem('dv-adminfree',free.checked?'1':'0');}catch(e){}refreshLic();});
+    openDlg([
+      h('h2',{text:'Panel de admin'}),
+      h('p',{text:'Los cambios solo se ven en este navegador hasta que subas el config.json a GitHub, en la misma carpeta que index.html.'}),
+      chk('Activar licencias (bloquear funciones sin código)',function(){return D.enabled;},function(v){D.enabled=v;}),
+      num('Duración de la licencia (días, 365 = 1 año)',function(){return D.days;},function(v){D.days=v;},1,3650),
+      h('div',{cls:'lic-sec'},[h('h3',{text:'Funciones que piden licencia'}),
+        chk('Subir PDF',function(){return D.locks.pdf;},function(v){D.locks.pdf=v;}),
+        chk('Herramienta Foto',function(){return D.locks.photo;},function(v){D.locks.photo=v;}),
+        chk('Subir figura',function(){return D.locks.upload;},function(v){D.locks.upload=v;}),
+        chk('Descargar y compartir',function(){return D.locks.export;},function(v){D.locks.export=v;})]),
+      h('div',{cls:'lic-sec'},[h('h3',{text:'Compra (opcional)'}),
+        txt('Texto del precio',function(){return D.price;},function(v){D.price=v;},'Licencia anual $4.99'),
+        txt('Enlace para comprar el código',function(){return D.buy;},function(v){D.buy=v.trim();},'https://','url')]),
+      h('div',{cls:'lic-sec'},[h('h3',{text:'Códigos de licencia'}),
+        h('p',{text:'Crea un código por persona. Cada uno dura el tiempo indicado desde que se activa.'}),
+        list,h('div',{cls:'lic-btns'},[h('button',{cls:'lic-btn pri',type:'button',text:'Generar código',onclick:genCode})])]),
+      h('div',{cls:'lic-sec'},[h('h3',{text:'Pruebas'}),
+        h('label',{cls:'lic-chk'},[free,'Ver la app como usuario sin licencia (en este navegador)'])]),
+      note,
+      h('div',{cls:'lic-btns'},[
+        h('button',{cls:'lic-btn pri',type:'button',text:'Guardar y aplicar',onclick:apply}),
+        h('button',{cls:'lic-btn',type:'button',text:'Descargar config.json',onclick:exportCfg}),
+        h('button',{cls:'lic-btn',type:'button',text:'Importar config.json',onclick:function(){imp.click();}}),imp]),
+      h('div',{cls:'lic-btns'},[
+        h('button',{cls:'lic-btn',type:'button',text:'Quitar cambios locales',onclick:function(){try{localStorage.removeItem(CK);}catch(e){}LCFG=mergeLic(jget(CC,null));refreshLic();adminPanel();}}),
+        h('button',{cls:'lic-btn',type:'button',text:'Cambiar contraseña',onclick:function(){try{localStorage.removeItem(AK);sessionStorage.removeItem('dv-admin');}catch(e){}refreshLic();openAdmin();}}),
+        h('button',{cls:'lic-btn bad',type:'button',text:'Cerrar sesión',onclick:function(){try{sessionStorage.removeItem('dv-admin');}catch(e){}refreshLic();closeDlg();}}),
+        h('button',{cls:'lic-btn',type:'button',text:'Cerrar',onclick:closeDlg})])
+    ]);
+  }
+  (function(){
+    var n=0,t0=0,h1=document.querySelector('.top h1');
+    if(!h1)return;
+    h1.addEventListener('click',function(){
+      var now=Date.now();n=(now-t0>3500)?1:n+1;t0=now;
+      if(n>=7){n=0;openAdmin();}
+    });
+  })();
+
+  refreshLic();
+  try{
+    fetch('config.json?v='+Date.now(),{cache:'no-store'}).then(function(r){if(!r.ok)throw 0;return r.json();}).then(function(j){
+      jset(CC,j);LCFG=mergeLic(j,jget(CK,null));refreshLic();
+    }).catch(function(){});
+  }catch(e){}
+  (function(){
+    var l=jget(LK,null);
+    if(LCFG.enabled&&l&&typeof l.exp==='number'&&Date.now()>=l.exp&&!adminOn())setTimeout(function(){say('Tu licencia venció el '+fmtDate(l.exp)+'. Activa un código nuevo con la estrella.',5200);},800);
+  })();
+
   /* ---------- start ---------- */
   load();
   loadPics();
